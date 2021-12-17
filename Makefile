@@ -11,3 +11,4 @@ TEST1:
 TEST2:
 	$(shell sourse .env)
 	curl -v -L -X GET "http://localhost:8080/weather/?location=murmansk"
+	curl -v -L -X GET "http://localhost:6379/weather/?location=murmansk"

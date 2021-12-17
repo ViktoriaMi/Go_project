@@ -14,39 +14,46 @@ import (
 	"github.com/go-redis/redis/v8"
 	//"github.com/gin-gonic/gin"
 	//"github.com/TheBookPeople/iso3166"
-	//"time"
+	"time"
 )
 
+// настройки для редиса
 var ctx = context.Background()
+var name_key = "weatherJsonStr"
+var rdb = redis.NewClient(&redis.Options{
+	Addr:     "localhost:6379",
+	Password: "", // no password set
+	DB:       0,  // use default DB
+})
 
-func RedisClient() {
-	rdb := redis.NewClient(&redis.Options{
-		Addr:     "localhost:8080",
-		Password: "", // no password set
-		DB:       0,  // use default DB
-	})
+func RedisClientSet(body []byte) {
+	//desc := dataW.Description
+	//name_key := "weatherJsonStr"
 
-	err := rdb.Set(ctx, "key", "value", 0).Err()
+	err := rdb.Set(ctx, name_key, body, 30*time.Second).Err()
 	if err != nil {
 		panic(err)
 	}
+}
 
-	val, err := rdb.Get(ctx, "key").Result()
+func RedisClientGet() ([]byte, error) {
+	val, err := rdb.Get(ctx, name_key).Bytes()
 	if err != nil {
-		panic(err)
+		//panic(err)
+		var oshibka []byte
+		return oshibka, err
 	}
-	fmt.Println("key = ", val)
+	//fmt.Println("key = ", val)
+	return val, nil
 
-	val2, err := rdb.Get(ctx, "key2").Result()
-	if err == redis.Nil {
-		fmt.Println("key2 does not exist")
-	} else if err != nil {
-		panic(err)
-	} else {
-		fmt.Println("key2", val2)
-	}
-	// Output: key value
-	// key2 does not exist
+	// val2, err := rdb.Get(ctx, "key2").Result()
+	// if err == redis.Nil {
+	// 	fmt.Println("key2 does not exist")
+	// } else if err != nil {
+	// 	panic(err)
+	// } else {
+	// 	fmt.Println("key2", val2)
+	// }
 }
 
 type Weather struct {
@@ -150,7 +157,7 @@ func getIP(r *http.Request) (string, error) {
 }
 
 func weather(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("Weather processing")
+	fmt.Println("\nWeather processing")
 
 	// ip, err := getIP(r)
 	// if err != nil {
@@ -184,38 +191,55 @@ func weather(w http.ResponseWriter, r *http.Request) {
 		log.Fatalln(err)
 	}
 
+	// используем редис !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+	//RedisClientSet(body)
+	new_body, new_err := RedisClientGet()
+	if new_err != nil {
+
+		var data Weather
+		err = json.Unmarshal(body, &data)
+		if err != nil {
+			log.Fatalf("Error occured during unmarshaling. Error: %s", err.Error())
+		}
+
+		// перевод из гектопаскалей в мм. рт. столба
+		data.Main.Pressure = data.Main.Pressure * 0.750064
+
+		weathJSON, err := json.MarshalIndent(data, "", "   ")
+		if err != nil {
+			log.Fatalf(err.Error())
+		}
+		fmt.Printf("First request / ttl expired\n")
+		fmt.Printf("Weather data by city name:\n%s\n", string(weathJSON))
+
+		RedisClientSet(body)
+
+		//log.Fatalln(new_err)
+	} else {
+		var data Weather
+		err = json.Unmarshal(new_body, &data)
+		if err != nil {
+			log.Fatalf("Error occured during unmarshaling. Error: %s", err.Error())
+		}
+
+		// перевод из гектопаскалей в мм. рт. столба
+		data.Main.Pressure = data.Main.Pressure * 0.750064
+
+		weathJSON, err := json.MarshalIndent(data, "", "   ")
+		if err != nil {
+			log.Fatalf(err.Error())
+		}
+		fmt.Printf("Weather data by city name from cache:\n%s\n", string(weathJSON))
+	}
+
 	// ответ строкой
 	//response := string(body)
 	// печать в консоль
 	//log.Println(response)
 	//log.Println(time.Now().UTC())
+	//bodybyte := [byte]new_body
 
-	var data Weather
-	err = json.Unmarshal(body, &data)
-	if err != nil {
-		log.Fatalf("Error occured during unmarshaling. Error: %s", err.Error())
-	}
-
-	// перевод из кельвинов в цельсии
-	//data.Main.Temp = data.Main.Temp - 272.15
-	//data.Main.FeelsLike = data.Main.FeelsLike - 272.15
-	//data.Main.TempMin = data.Main.TempMin - 272.15
-	//data.Main.TempMax = data.Main.TempMax - 272.15
-	// перевод из гектопаскалей в мм. рт. столба
-	data.Main.Pressure = data.Main.Pressure * 0.750064
-	//fmt.Printf("Weather data: %#v\n", data)
-	//fmt.Println()
-	//fmt.Printf("Weather data: %+v\n", data)
-
-	//fmt.Println()
-	//MarshalIndent
-	weathJSON, err := json.MarshalIndent(data, "", "   ")
-	if err != nil {
-		log.Fatalf(err.Error())
-	}
-	fmt.Printf("Weather data by city name:\n%s\n", string(weathJSON))
-
-	//// 2 лаба
+	//// 2 ЛАБА
 	// отправляем запрос к серверу, чтобы он определил ip
 	str2 := "http://ip-api.com/json/"
 
@@ -272,12 +296,11 @@ func weather(w http.ResponseWriter, r *http.Request) {
 		log.Fatalf(err3.Error())
 	}
 	fmt.Printf("Weather data in %s by IP:\n%s\n", city_str, string(weathJSON2))
-
-	RedisClient()
 }
 
 func main() {
 	server := http.Server{
+		//Addr: "localhost:6379",
 		Addr: "0.0.0.0:8080",
 	}
 
